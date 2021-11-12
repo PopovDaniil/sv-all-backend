@@ -1,22 +1,22 @@
 import cv2
 import time
-import zmq
 import base64
 import json
 import numpy as np
 import HandTracking as htm
 import ctypes
 from ordered_set import OrderedSet
-# from Messages import  MessagesController
-from Redis import Redis
-context = zmq.Context()
-socket = context.socket(zmq.SUB)
-socket.bind('tcp://*:7777')
-socket.setsockopt_string(zmq.SUBSCRIBE, np.compat.unicode(''))
+
+import sys
+sys.path.append('..')
+
+from client.Redis import ClientRedisConnection
+from client.RedisListener import ClientRedisListener
+
+redis_connection = ClientRedisConnection()
 
 overlayList = []
 
-print(len(overlayList))
 pTime = 0
 
 detector = htm.handDetector(detectionCon=0.85)
@@ -32,15 +32,15 @@ gestures = {
 
 }
 filteredGestures = OrderedSet()
-ctrl = Redis()
-global configs
-while True:
-    image_string = socket.recv_string()
-    raw_image = base64.b64decode(image_string)
+configs = redis_connection.read_configs()
+
+def image_handler(image):
+    global configs
+    raw_image = base64.b64decode(image['data'])
     image = np.frombuffer(raw_image, dtype=np.uint8)
     frame = np.array(cv2.imdecode(image, 1))
     img = detector.findHands(frame)
-    runtime_configs = ctrl.read_configs()
+    runtime_configs = redis_connection.read_configs()
     if runtime_configs != None and runtime_configs != configs:
         configs = runtime_configs
 
@@ -85,16 +85,17 @@ while True:
                 filteredGestures.add('like')
 
     # filteredGestures = list(filter(lambda gesture: gestures[gesture] > 50, gestures))
-    print(filteredGestures)
     #ctrl.send_data(str({"gestures": filteredGestures}))
     if filteredGestures == {'like', 'fist', 'hello'}:
         data = {"type": "camera_events", "event": "Лампочка гори!", "gestures": filteredGestures}
-        ctrl.send_data(json.dumps(data))
+        # client.send_data(json.dumps(data))
         # exit()
 
-    cTime = time.time()
-    fps = 1 / (cTime - pTime)
-    pTime = cTime
-
+    # cTime = time.time()
+    # fps = 1 / (cTime - pTime)
+    # pTime = cTime
+    print(len(img))
     cv2.imshow("Image", img)
     cv2.waitKey(1)
+
+redis_listener = ClientRedisListener(redis_connection, image_handler)
